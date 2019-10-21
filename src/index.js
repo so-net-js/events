@@ -76,15 +76,110 @@ class Events {
    * @param id {string} middleware id
    */
   unUse(id) {
-
+    let done = false;
+    utils.utils.iterateSync(this.middlewaresBefore, (val, idx, setKey, stopExec) => {
+      if (idx === id) {
+        stopExec();
+        delete this.middlewaresBefore[id];
+        done = true;
+      }
+    });
+    if (done) return;
+    utils.utils.iterateSync(this.middlewaresAfter, (val, idx, setKey, stopExec) => {
+      if (idx === id) {
+        stopExec();
+        delete this.middlewaresAfter[id];
+      }
+    });
   }
 
+  /**
+   * Emits an event in a sync way (should be used if there are no async callbacks or middlewares)
+   *
+   * If no listeners were attached to the event or before middleware has stopped execution, returns undefined
+   * If there were only one listener, returns the return value of the event callback
+   * If there were multiple listeners, returns an array of the return values of the events callbacks
+   *
+   * @param eventName {string} event name
+   * @param args {...any} just arguments for the listeners of the event
+   * @returns {undefined | any | [any]} result of execution
+   */
   emit(eventName, ...args) {
+    let shouldStopExecution = false;
+    let fEventName          = eventName;
+    let fArgs               = args;
+    let returnValue         = undefined;
 
+    utils.utils.iterateSync(this.middlewaresBefore, (middleware, idx, setKey, stopExecution) => {
+      let res = middleware(fEventName, fArgs);
+      if (res.eventName) fEventName = res.eventName;
+      if (res.args) fArgs = res.args;
+      if (res.stopExecution) {
+        shouldStopExecution = true;
+        returnValue         = res.stopExecutionReturnValue;
+        stopExecution();
+      }
+    });
+    if (shouldStopExecution) return returnValue;
+    if (!this.registeredCallbacks[fEventName]) return;
+
+    returnValue = utils.utils.iterateSync(this.registeredCallbacks[fEventName], (value, index) => {
+      return value(...fArgs);
+    }, []);
+    if (returnValue.length === 1) returnValue = returnValue[0];
+
+
+    utils.utils.iterateSync(this.middlewaresAfter, (middleware, idx, setKey, stopExecution) => {
+      let res = middleware(fEventName, fArgs, returnValue);
+      if (res.returnValue) returnValue = res.returnValue;
+    });
+
+    return returnValue;
   }
 
-  emitAsync(eventName, args) {
 
+  /**
+   * Emits an event in an async way (should be used if there are are async callbacks or middlewares)
+   *
+   * If no listeners were attached to the event or before middleware has stopped execution, returns undefined
+   * If there were only one listener, returns the return value of the event callback
+   * If there were multiple listeners, returns an array of the return values of the events callbacks
+   *
+   * @param eventName {string} event name
+   * @param args {...any} just arguments for the listeners of the event
+   * @returns {Promise<undefined | any | [any]>} result of execution
+   */
+  async emitAsync(eventName, ...args) {
+    let shouldStopExecution = false;
+    let fEventName          = eventName;
+    let fArgs               = args;
+    let returnValue         = undefined;
+
+    await utils.utils.iterateAsync(this.middlewaresBefore, async (middleware, idx, setKey, stopExecution) => {
+      let res = await middleware(fEventName, fArgs);
+      if (res.eventName) fEventName = res.eventName;
+      if (res.args) fArgs = res.args;
+      if (res.stopExecution) {
+        shouldStopExecution = true;
+        returnValue         = res.stopExecutionReturnValue;
+        stopExecution();
+      }
+    });
+    if (shouldStopExecution) return returnValue;
+    if (!this.registeredCallbacks[fEventName]) return;
+
+    returnValue = await utils.utils.iterateAsync(this.registeredCallbacks[fEventName], async (value, index) => {
+      return await value(...fArgs);
+    }, []);
+    if (returnValue.length === 1) returnValue = returnValue[0];
+
+
+    await utils.utils.iterateSync(this.middlewaresAfter, async (middleware, idx, setKey, stopExecution) => {
+      let res = await middleware(fEventName, fArgs, returnValue);
+      if (res.returnValue) returnValue = res.returnValue;
+    });
+
+    return returnValue;
   }
 }
 
